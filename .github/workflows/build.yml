@@ -34,7 +34,13 @@ jobs:
         cp -r uefiseven/UefiSevenPkg edk2/
         cp -r uefiseven/IntelFrameworkPkg edk2/
         cd edk2
-        BUILD_CFLAGS="-Wno-error" make -C BaseTools
+        
+        # Вырезаем флаг -Werror из мейкфайлов BaseTools, чтобы предупреждения не стопили сборку
+        find BaseTools/Source/C -name "Makefile" -exec sed -i 's/-Werror//g' {} +
+        find BaseTools/Source/C -name "GNUmakefile" -exec sed -i 's/-Werror//g' {} +
+        
+        # Запускаем сборку внутренних утилит
+        make -C BaseTools
 
     - name: Build Code
       run: |
