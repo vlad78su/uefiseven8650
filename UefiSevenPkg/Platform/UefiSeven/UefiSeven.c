@@ -19,6 +19,7 @@
 #include "Filesystem.h"
 #include "Int10hHandler.h"
 #include "Version.h"
+#include "AmdVbios.h"
 
 
 /**
@@ -837,14 +838,6 @@ UefiMain (
     PrintDebug (L"Overwriting int10h handler with fakevesa...\n");
   }
 
-  //
-  // Sanity checks.
-  //
-  if (sizeof (INT10H_HANDLER) > VGA_ROM_SIZE) {
-    PrintError (L"Shim size bigger than allowed (%u > %u), aborting\n",
-      sizeof (INT10H_HANDLER), VGA_ROM_SIZE);
-    goto Exit;
-  }
 
   //
   // Unlock VGA ROM memory area for writing first.
@@ -856,21 +849,19 @@ UefiMain (
   }
 
   //
-  // Copy ROM stub in place and fill in the missing information.
+  // Clean and load AMD BIOS
   //
   ZeroMem ((VOID *)VGA_ROM_ADDRESS, VGA_ROM_SIZE);
-  CopyMem ((VOID *)VGA_ROM_ADDRESS, INT10H_HANDLER, sizeof (INT10H_HANDLER));
-  Status = ShimVesaInformation (VGA_ROM_ADDRESS, &Int10hHandlerAddress);
-  if (EFI_ERROR (Status)) {
-    PrintError (L"VESA information could not be filled in, aborting\n");
-    goto Exit;
-  } else {
-    // Convert from 32bit physical address to real mode segment address.
-    NewInt10hHandlerEntry.Segment = (UINT16)((UINT32)VGA_ROM_ADDRESS >> 4);
-    NewInt10hHandlerEntry.Offset  = (UINT16)(Int10hHandlerAddress - VGA_ROM_ADDRESS);
-    PrintDebug (L"VESA information filled in, Int10h handler address=%x (%04x:%04x)\n",
-      Int10hHandlerAddress, NewInt10hHandlerEntry.Segment, NewInt10hHandlerEntry.Offset);
-  }
+  CopyMem ((VOID *)VGA_ROM_ADDRESS, AMD_VBIOS, sizeof (AMD_VBIOS));
+
+  //
+  // Int10h Address
+  //
+  NewInt10hHandlerEntry.Segment = (UINT16)((UINT32)VGA_ROM_ADDRESS >> 4); // Получится сегмент 0xC000
+  NewInt10hHandlerEntry.Offset  = 0x0003; 
+
+  PrintDebug (L"AMD VBIOS injected successfully. Int10h points to (%04x:%04x)\n",
+    NewInt10hHandlerEntry.Segment, NewInt10hHandlerEntry.Offset);
 
   //
   // Lock VGA ROM memory area to prevent further writes.
