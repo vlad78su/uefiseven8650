@@ -46,7 +46,7 @@ jobs:
         cd edk2
         source edksetup.sh
         # Запуск сборки под архитектуру X64 релизной версии
-        build -a X64 -t GCC5 -b RELEASE -p UefiSevenPkg/UefiSevenPkg.dsc --conf=UefiSevenPkg/Conf
+        build -a X64 -t GCC -b RELEASE -p UefiSevenPkg/UefiSevenPkg.dsc --conf=UefiSevenPkg/Conf
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
