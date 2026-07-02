@@ -45,8 +45,14 @@ jobs:
       run: |
         cd edk2
         source edksetup.sh
-        # Запуск сборки под архитектуру X64 релизной версии
-        build -a X64 -t GCC -b RELEASE -p UefiSevenPkg/UefiSevenPkg.dsc --conf=UefiSevenPkg/Conf
+        
+        # Копируем правильные шаблоны тулчейнов EDK II в папку конфигурации UefiSeven
+        mkdir -p UefiSevenPkg/Conf
+        cp BaseTools/Conf/tools_def.template UefiSevenPkg/Conf/tools_def.txt
+        cp BaseTools/Conf/build_rule.template UefiSevenPkg/Conf/build_rule.txt
+        
+        # Запускаем сборку обратно с тегом GCC5
+        build -a X64 -t GCC5 -b RELEASE -p UefiSevenPkg/UefiSevenPkg.dsc --conf=UefiSevenPkg/Conf
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
