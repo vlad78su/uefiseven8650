@@ -34,7 +34,7 @@ jobs:
         cp -r uefiseven/UefiSevenPkg edk2/
         cp -r uefiseven/IntelFrameworkPkg edk2/
         cd edk2
-        make -C BaseTools
+        BUILD_CFLAGS="-Wno-error" make -C BaseTools
 
     - name: Build Code
       run: |
