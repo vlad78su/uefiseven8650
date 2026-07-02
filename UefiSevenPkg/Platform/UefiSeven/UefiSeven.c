@@ -114,7 +114,7 @@ ShimVesaInformation (
   VbeModeInfo->ModeAttr                 = BIT7 | BIT6 | BIT5 | BIT4 | BIT3 | BIT1 | BIT0;
 
   //
-  // Resolution: Возвращаем 1024x768 для идеального масштаба бутскрина Windows
+  // Resolution: Настоящие 1024x768 для бутскрина
   //
   VbeModeInfo->Width                    = 1024;   
   VbeModeInfo->Height                   = 768;    
@@ -122,7 +122,7 @@ ShimVesaInformation (
   VbeModeInfo->CharCellHeight           = 16;     
 
   //
-  // Центрирование: высчитываем отступы от краев (1366 - 1024) / 2 = 171 пиксель слева и справа
+  // Рассчитываем смещение только если физическое разрешение экрана больше 1024
   //
   HorizontalOffsetPx        = (mDisplayInfo.HorizontalResolution > 1024) ? (mDisplayInfo.HorizontalResolution - 1024) / 2 : 0;
   VerticalOffsetPx          = (mDisplayInfo.VerticalResolution > 768) ? (mDisplayInfo.VerticalResolution - 768) / 2 * mDisplayInfo.PixelsPerScanLine : 0;
@@ -148,12 +148,12 @@ ShimVesaInformation (
   VbeModeInfo->WindowBStartSegment      = 0x0;    
 
   //
-  // Color mode: Фиксируем 32-битную палитру и Direct Color, чтобы Safe Mode не падал в 16 цветов
+  // Color mode
   //
   VbeModeInfo->NumPlanes                = 1;      
-  VbeModeInfo->MemoryModel              = 6;      // Direct Color вместо палитренного маппинга
+  VbeModeInfo->MemoryModel              = 6;      
   VbeModeInfo->DirectColorModeInfo      = BIT1;   
-  VbeModeInfo->BitsPerPixel             = 32;     // Намертво зашиваем 32 бита
+  VbeModeInfo->BitsPerPixel             = 32;     
   VbeModeInfo->BlueMaskSizeLinear       = 8;
   VbeModeInfo->GreenMaskSizeLinear      = 8;
   VbeModeInfo->RedMaskSizeLinear        = 8;
@@ -164,11 +164,14 @@ ShimVesaInformation (
     VbeModeInfo->GreenMaskPosLinear     = 8;      
     VbeModeInfo->RedMaskPosLinear       = 16;     
     VbeModeInfo->ReservedMaskPosLinear  = 24;     
-  } else {
+  } else if (mDisplayInfo.PixelFormat == PixelRedGreenBlueReserved8BitPerColor) {
     VbeModeInfo->RedMaskPosLinear       = 0;      
     VbeModeInfo->GreenMaskPosLinear     = 8;      
     VbeModeInfo->BlueMaskPosLinear      = 16;     
     VbeModeInfo->ReservedMaskPosLinear  = 24;     
+  } else {
+    PrintError (L"Unsupported value of PixelFormat (%d), aborting\n", mDisplayInfo.PixelFormat);
+    return EFI_UNSUPPORTED;
   }
 
   //
@@ -183,7 +186,6 @@ ShimVesaInformation (
 
   return EFI_SUCCESS;
 }
-
 /**
   Checkes if an Int10h handler is already defined in the
   Interrupt Vector Table (IVT), points to somewhere
@@ -791,15 +793,15 @@ UefiMain (
   //}
 
   //
-  // Windows 7 prefers a 1366x768 resolution.
+  // Windows 7 prefers a 1024x768 resolution.
   //
-  SwitchVideoMode (1366, 768);
+  SwitchVideoMode (1024, 768); // Устанавливаем 1024x768
   if (mVerboseMode || mLogToFile) {
     PrintVideoInfo ();
   }
 
-  if (!MatchCurrentResolution (1366, 768)) {
-    PrintError (L"Current display does not seem to support changing to 1366x768 resolution\n");
+  if (!MatchCurrentResolution (1024, 768)) {
+    PrintError (L"Current display does not seem to support changing to 1024x768 resolution\n");
     PrintError (L"which is the minimum requirement of Windows 7.\n");
     PrintError (L"It is likely that Windows might fail to boot even with the handler installed.\n");
     PrintError (L"Press Enter to try a new 'hack' that will force the display driver to work.\n");
@@ -807,7 +809,7 @@ UefiMain (
     if (!mSkipErrors) {
       WaitForEnter (FALSE);
     }
-    ForceVideoModeHack (1366, 768);
+    ForceVideoModeHack (1024, 768);
   }
 
   //
