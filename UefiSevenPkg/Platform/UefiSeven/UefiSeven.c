@@ -662,7 +662,6 @@ UefiMain (
   IN EFI_SYSTEM_TABLE   *SystemTable
   )
 {
-  EFI_PHYSICAL_ADDRESS    Int10hHandlerAddress;
   IVT_ENTRY               *IvtInt10hHandlerEntry;
   IVT_ENTRY               NewInt10hHandlerEntry;
   EFI_PHYSICAL_ADDRESS    IvtAddress;
