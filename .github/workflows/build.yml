@@ -1,0 +1,50 @@
+name: Build UEFI UEFISeven
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  workflow_dispatch: # Позволяет запускать сборку вручную кнопкой
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout UefiSeven
+      uses: actions/checkout@v4
+      with:
+        path: uefiseven
+
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential uuid-dev iasl git nasm python3-distutils
+
+    - name: Checkout EDK II
+      uses: actions/checkout@v4
+      with:
+        repository: tianocore/edk2
+        ref: edk2-stable202008
+        submodules: recursive
+        path: edk2
+
+    - name: Prepare build environment
+      run: |
+        # Копируем файлы проекта в дерево EDK II, как прописано в документации UefiSeven
+        cp -r uefiseven/UefiSevenPkg edk2/
+        cp -r uefiseven/IntelFrameworkPkg edk2/
+        cd edk2
+        make -C BaseTools
+
+    - name: Build Code
+      run: |
+        cd edk2
+        source edksetup.sh
+        # Запуск сборки под архитектуру X64 релизной версии
+        build -a X64 -t GCC5 -b RELEASE -p UefiSevenPkg/UefiSevenPkg.dsc --conf=UefiSevenPkg/Conf
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: UefiSeven-Custom-1366x768
+        path: edk2/Build/UefiSeven/RELEASE_GCC5/X64/UefiSeven.efi
