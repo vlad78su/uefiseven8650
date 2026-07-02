@@ -126,7 +126,7 @@ ShimVesaInformation (
   //
   // Resolution.
   //
-  VbeModeInfo->Width                    = 1024;   // as expected by Windows installer
+  VbeModeInfo->Width                    = 1366;   // as expected by Windows installer
   VbeModeInfo->Height                   = 768;    // as expected by Windows installer
   VbeModeInfo->CharCellWidth            = 8;      // used to calculate resolution in text modes
   VbeModeInfo->CharCellHeight           = 16;     // used to calculate resolution in text modes
@@ -134,7 +134,7 @@ ShimVesaInformation (
   //
   // Center visible image on screen using framebuffer offset.
   //
-  HorizontalOffsetPx        = (mDisplayInfo.HorizontalResolution - 1024) / 2;
+  HorizontalOffsetPx        = (mDisplayInfo.HorizontalResolution - 1366) / 2;
   VerticalOffsetPx          = (mDisplayInfo.VerticalResolution - 768) / 2 * mDisplayInfo.PixelsPerScanLine;
   FrameBufferBaseWithOffset = mDisplayInfo.FrameBufferBase
                                 + VerticalOffsetPx * 4      // 4 bytes per pixel
@@ -805,15 +805,15 @@ UefiMain (
   //}
 
   //
-  // Windows 7 prefers a 1024x768 resolution.
+  // Windows 7 prefers a 1366x768 resolution.
   //
-  SwitchVideoMode (1024, 768);
+  SwitchVideoMode (1366, 768);
   if (mVerboseMode || mLogToFile) {
     PrintVideoInfo ();
   }
 
-  if (!MatchCurrentResolution (1024, 768)) {
-    PrintError (L"Current display does not seem to support changing to 1024x768 resolution\n");
+  if (!MatchCurrentResolution (1366, 768)) {
+    PrintError (L"Current display does not seem to support changing to 1366x768 resolution\n");
     PrintError (L"which is the minimum requirement of Windows 7.\n");
     PrintError (L"It is likely that Windows might fail to boot even with the handler installed.\n");
     PrintError (L"Press Enter to try a new 'hack' that will force the display driver to work.\n");
@@ -821,7 +821,7 @@ UefiMain (
     if (!mSkipErrors) {
       WaitForEnter (FALSE);
     }
-    ForceVideoModeHack (1024, 768);
+    ForceVideoModeHack (1366, 768);
   }
 
   //
