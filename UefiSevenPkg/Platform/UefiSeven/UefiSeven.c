@@ -73,9 +73,6 @@ ShimVesaInformation (
     return EFI_INVALID_PARAMETER;
   }
 
-  //
-  // Get basic video hardware information first.
-  //
   if (EFI_ERROR (EnsureDisplayAvailable ())) {
     PrintError (L"No display adapters were found, unable to fill in VESA information\n");
     return EFI_NOT_FOUND;
@@ -92,11 +89,11 @@ ShimVesaInformation (
   VbeInfo->OemNameAddress               = (UINT32)StartAddress << 12 | (UINT16)(UINTN)BufferPtr;
   CopyMem (BufferPtr, VENDOR_NAME, sizeof (VENDOR_NAME));
   BufferPtr += sizeof (VENDOR_NAME);
-  VbeInfo->Capabilities                 = BIT0;     // DAC width supports 8-bit color mode
+  VbeInfo->Capabilities                 = BIT0;     
   VbeInfo->ModeListAddress              = (UINT32)StartAddress << 12 | (UINT16)(UINTN)BufferPtr;
-  *(UINT16 *)BufferPtr = 0x00F1;   // mode number
+  *(UINT16 *)BufferPtr = 0x00F1;   
   BufferPtr += 2;
-  *(UINT16 *)BufferPtr = 0xFFFF;   // mode list terminator
+  *(UINT16 *)BufferPtr = 0xFFFF;   
   BufferPtr += 2;
   VbeInfo->VideoMem64K                  = (UINT16)((mDisplayInfo.FrameBufferSize + 65535) / 65536);
   VbeInfo->OemSoftwareVersion           = 0x0000;
@@ -113,90 +110,79 @@ ShimVesaInformation (
   //
   // Basic VESA mode information.
   //
-  VbeModeInfo = (VBE_MODE_INFO *)(VbeInfoFull + 1); // jump ahead by sizeof (VBE_INFO) ie. 256 bytes
-  // bit0: mode supported by present hardware configuration
-  // bit1: must be set for VBE v1.2+
-  // bit3: color mode
-  // bit4: graphics mode
-  // bit5: mode not VGA-compatible (do not access VGA I/O ports and registers)
-  // bit6: disable windowed memory mode = linear framebuffer only
-  // bit7: linear framebuffer supported
+  VbeModeInfo = (VBE_MODE_INFO *)(VbeInfoFull + 1); 
   VbeModeInfo->ModeAttr                 = BIT7 | BIT6 | BIT5 | BIT4 | BIT3 | BIT1 | BIT0;
 
   //
-  // Resolution.
+  // Resolution: Возвращаем 1024x768 для идеального масштаба бутскрина Windows
   //
-  VbeModeInfo->Width                    = 1366;   // as expected by Windows installer
-  VbeModeInfo->Height                   = 768;    // as expected by Windows installer
-  VbeModeInfo->CharCellWidth            = 8;      // used to calculate resolution in text modes
-  VbeModeInfo->CharCellHeight           = 16;     // used to calculate resolution in text modes
+  VbeModeInfo->Width                    = 1024;   
+  VbeModeInfo->Height                   = 768;    
+  VbeModeInfo->CharCellWidth            = 8;      
+  VbeModeInfo->CharCellHeight           = 16;     
 
   //
-  // Center visible image on screen using framebuffer offset.
+  // Центрирование: высчитываем отступы от краев (1366 - 1024) / 2 = 171 пиксель слева и справа
   //
-  HorizontalOffsetPx        = (mDisplayInfo.HorizontalResolution - 1366) / 2;
-  VerticalOffsetPx          = (mDisplayInfo.VerticalResolution - 768) / 2 * mDisplayInfo.PixelsPerScanLine;
+  HorizontalOffsetPx        = (mDisplayInfo.HorizontalResolution > 1024) ? (mDisplayInfo.HorizontalResolution - 1024) / 2 : 0;
+  VerticalOffsetPx          = (mDisplayInfo.VerticalResolution > 768) ? (mDisplayInfo.VerticalResolution - 768) / 2 * mDisplayInfo.PixelsPerScanLine : 0;
   FrameBufferBaseWithOffset = mDisplayInfo.FrameBufferBase
-                                + VerticalOffsetPx * 4      // 4 bytes per pixel
-                                + HorizontalOffsetPx * 4;   // 4 bytes per pixel
+                                + VerticalOffsetPx * 4      
+                                + HorizontalOffsetPx * 4;   
 
   //
-  // Memory access (banking, windowing, paging).
+  // Memory access
   //
-  VbeModeInfo->NumBanks                 = 1;      // disable memory banking
-  VbeModeInfo->BankSizeKB               = 0;      // disable memory banking
-  VbeModeInfo->LfbAddress               = (UINT32)FrameBufferBaseWithOffset;            // 32-bit physical address
-  VbeModeInfo->BytesPerScanLineLinear   = (UINT16)mDisplayInfo.PixelsPerScanLine * 4;   // logical bytes in linear modes
-  VbeModeInfo->NumImagePagesLessOne     = 0;      // disable image paging
-  VbeModeInfo->NumImagesLessOneLinear   = 0;      // disable image paging
-  VbeModeInfo->WindowPositioningAddress = 0x0;    // force windowing to Function 5h
-  VbeModeInfo->WindowAAttr              = 0x0;    // window disabled
-  VbeModeInfo->WindowBAttr              = 0x0;    // window disabled
-  VbeModeInfo->WindowGranularityKB      = 0x0;    // window disabled ie. not relocatable
-  VbeModeInfo->WindowSizeKB             = 0x0;    // window disabled
-  VbeModeInfo->WindowAStartSegment      = 0x0;    // linear framebuffer only
-  VbeModeInfo->WindowBStartSegment      = 0x0;    // linear framebuffer only
+  VbeModeInfo->NumBanks                 = 1;      
+  VbeModeInfo->BankSizeKB               = 0;      
+  VbeModeInfo->LfbAddress               = (UINT32)FrameBufferBaseWithOffset;            
+  VbeModeInfo->BytesPerScanLineLinear   = (UINT16)mDisplayInfo.PixelsPerScanLine * 4;   
+  VbeModeInfo->NumImagePagesLessOne     = 0;      
+  VbeModeInfo->NumImagesLessOneLinear   = 0;      
+  VbeModeInfo->WindowPositioningAddress = 0x0;    
+  VbeModeInfo->WindowAAttr              = 0x0;    
+  VbeModeInfo->WindowBAttr              = 0x0;    
+  VbeModeInfo->WindowGranularityKB      = 0x0;    
+  VbeModeInfo->WindowSizeKB             = 0x0;    
+  VbeModeInfo->WindowAStartSegment      = 0x0;    
+  VbeModeInfo->WindowBStartSegment      = 0x0;    
 
   //
-  // Color mode.
+  // Color mode: Фиксируем 32-битную палитру и Direct Color, чтобы Safe Mode не падал в 16 цветов
   //
-  VbeModeInfo->NumPlanes                = 1;      // packed pixel mode
-  VbeModeInfo->MemoryModel              = 6;      // Direct Color
-  VbeModeInfo->DirectColorModeInfo      = BIT1;   // alpha bytes may be used by application
-  VbeModeInfo->BitsPerPixel             = 32;     // 8+8+8+8 bits per channel
+  VbeModeInfo->NumPlanes                = 1;      
+  VbeModeInfo->MemoryModel              = 6;      // Direct Color вместо палитренного маппинга
+  VbeModeInfo->DirectColorModeInfo      = BIT1;   
+  VbeModeInfo->BitsPerPixel             = 32;     // Намертво зашиваем 32 бита
   VbeModeInfo->BlueMaskSizeLinear       = 8;
   VbeModeInfo->GreenMaskSizeLinear      = 8;
   VbeModeInfo->RedMaskSizeLinear        = 8;
   VbeModeInfo->ReservedMaskSizeLinear   = 8;
 
   if (mDisplayInfo.PixelFormat == PixelBlueGreenRedReserved8BitPerColor) {
-    VbeModeInfo->BlueMaskPosLinear      = 0;      // blue offset
-    VbeModeInfo->GreenMaskPosLinear     = 8;      // green offset
-    VbeModeInfo->RedMaskPosLinear       = 16;     // red offset
-    VbeModeInfo->ReservedMaskPosLinear  = 24;     // reserved offset
-  } else if (mDisplayInfo.PixelFormat == PixelRedGreenBlueReserved8BitPerColor) {
-    VbeModeInfo->RedMaskPosLinear       = 0;      // red offset
-    VbeModeInfo->GreenMaskPosLinear     = 8;      // green offset
-    VbeModeInfo->BlueMaskPosLinear      = 16;     // blue offset
-    VbeModeInfo->ReservedMaskPosLinear  = 24;     // alpha offset
+    VbeModeInfo->BlueMaskPosLinear      = 0;      
+    VbeModeInfo->GreenMaskPosLinear     = 8;      
+    VbeModeInfo->RedMaskPosLinear       = 16;     
+    VbeModeInfo->ReservedMaskPosLinear  = 24;     
   } else {
-    PrintError (L"Unsupported value of PixelFormat (%d), aborting\n", mDisplayInfo.PixelFormat);
-    return EFI_UNSUPPORTED;
+    VbeModeInfo->RedMaskPosLinear       = 0;      
+    VbeModeInfo->GreenMaskPosLinear     = 8;      
+    VbeModeInfo->BlueMaskPosLinear      = 16;     
+    VbeModeInfo->ReservedMaskPosLinear  = 24;     
   }
 
   //
   // Other.
   //
-  VbeModeInfo->OffScreenAddress         = 0;      // reserved, always set to 0
-  VbeModeInfo->OffScreenSizeKB          = 0;      // reserved, always set to 0
-  VbeModeInfo->MaxPixelClockHz          = 0;      // maximum available refresh rate
-  VbeModeInfo->Vbe3                     = 0x01;   // reserved, always set to 1
+  VbeModeInfo->OffScreenAddress         = 0;      
+  VbeModeInfo->OffScreenSizeKB          = 0;      
+  VbeModeInfo->MaxPixelClockHz          = 0;      
+  VbeModeInfo->Vbe3                     = 0x01;   
 
-  *EndAddress = (UINTN)(VbeModeInfo + 1);         // jump ahead by sizeof (VBE_MODE_INFO) ie. 256 bytes
+  *EndAddress = (UINTN)(VbeModeInfo + 1);         
 
   return EFI_SUCCESS;
 }
-
 
 /**
   Checkes if an Int10h handler is already defined in the
