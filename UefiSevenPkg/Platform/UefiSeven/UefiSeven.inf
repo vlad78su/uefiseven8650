@@ -29,6 +29,7 @@
   Display.c
   Filesystem.c
   Util.c
+  AmdVbios.h
 
 [Packages]
   IntelFrameworkPkg/IntelFrameworkPkg.dec
