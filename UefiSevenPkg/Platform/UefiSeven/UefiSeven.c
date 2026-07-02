@@ -78,9 +78,6 @@ ShimVesaInformation (
     return EFI_NOT_FOUND;
   }
 
-  //
-  // VESA general information.
-  //
   VbeInfoFull = (VBE_INFO *)(UINTN)StartAddress;
   VbeInfo   = &VbeInfoFull->Base;
   BufferPtr = VbeInfoFull->Buffer;
@@ -107,32 +104,22 @@ ShimVesaInformation (
   CopyMem (BufferPtr, PRODUCT_REVISION, sizeof (PRODUCT_REVISION));
   BufferPtr += sizeof (PRODUCT_REVISION);
 
-  //
-  // Basic VESA mode information.
-  //
   VbeModeInfo = (VBE_MODE_INFO *)(VbeInfoFull + 1); 
   VbeModeInfo->ModeAttr                 = BIT7 | BIT6 | BIT5 | BIT4 | BIT3 | BIT1 | BIT0;
 
-  //
-  // Resolution: Настоящие 1024x768 для бутскрина
-  //
+  // Windows думает, что рисует в 1024x768
   VbeModeInfo->Width                    = 1024;   
   VbeModeInfo->Height                   = 768;    
   VbeModeInfo->CharCellWidth            = 8;      
   VbeModeInfo->CharCellHeight           = 16;     
 
-  //
-  // Рассчитываем смещение только если физическое разрешение экрана больше 1024
-  //
+  // Высчитываем центровку: (1366 - 1024) / 2 = 171 пиксель отступа слева
   HorizontalOffsetPx        = (mDisplayInfo.HorizontalResolution > 1024) ? (mDisplayInfo.HorizontalResolution - 1024) / 2 : 0;
   VerticalOffsetPx          = (mDisplayInfo.VerticalResolution > 768) ? (mDisplayInfo.VerticalResolution - 768) / 2 * mDisplayInfo.PixelsPerScanLine : 0;
   FrameBufferBaseWithOffset = mDisplayInfo.FrameBufferBase
                                 + VerticalOffsetPx * 4      
                                 + HorizontalOffsetPx * 4;   
 
-  //
-  // Memory access
-  //
   VbeModeInfo->NumBanks                 = 1;      
   VbeModeInfo->BankSizeKB               = 0;      
   VbeModeInfo->LfbAddress               = (UINT32)FrameBufferBaseWithOffset;            
@@ -147,9 +134,6 @@ ShimVesaInformation (
   VbeModeInfo->WindowAStartSegment      = 0x0;    
   VbeModeInfo->WindowBStartSegment      = 0x0;    
 
-  //
-  // Color mode
-  //
   VbeModeInfo->NumPlanes                = 1;      
   VbeModeInfo->MemoryModel              = 6;      
   VbeModeInfo->DirectColorModeInfo      = BIT1;   
@@ -159,6 +143,7 @@ ShimVesaInformation (
   VbeModeInfo->RedMaskSizeLinear        = 8;
   VbeModeInfo->ReservedMaskSizeLinear   = 8;
 
+  // Возвращаем обязательную для AMD проверку форматов цвета
   if (mDisplayInfo.PixelFormat == PixelBlueGreenRedReserved8BitPerColor) {
     VbeModeInfo->BlueMaskPosLinear      = 0;      
     VbeModeInfo->GreenMaskPosLinear     = 8;      
@@ -174,9 +159,6 @@ ShimVesaInformation (
     return EFI_UNSUPPORTED;
   }
 
-  //
-  // Other.
-  //
   VbeModeInfo->OffScreenAddress         = 0;      
   VbeModeInfo->OffScreenSizeKB          = 0;      
   VbeModeInfo->MaxPixelClockHz          = 0;      
@@ -792,24 +774,20 @@ UefiMain (
   //  ShowAnimatedLogo ();
   //}
 
+//
+  // Force native display resolution for Lenovo E545
   //
-  // Windows 7 prefers a 1024x768 resolution.
-  //
-  SwitchVideoMode (1024, 768); // Устанавливаем 1024x768
+  SwitchVideoMode (1366, 768); // Инициализируем экран в родном разрешении матрицы
   if (mVerboseMode || mLogToFile) {
     PrintVideoInfo ();
   }
 
-  if (!MatchCurrentResolution (1024, 768)) {
-    PrintError (L"Current display does not seem to support changing to 1024x768 resolution\n");
-    PrintError (L"which is the minimum requirement of Windows 7.\n");
-    PrintError (L"It is likely that Windows might fail to boot even with the handler installed.\n");
-    PrintError (L"Press Enter to try a new 'hack' that will force the display driver to work.\n");
-    PrintError (L"The display might be glitchy but it will be able to provide a workable screen.\n");
+  if (!MatchCurrentResolution (1366, 768)) {
+    PrintError (L"Current display does not seem to support changing to 1366x768 resolution\n");
     if (!mSkipErrors) {
       WaitForEnter (FALSE);
     }
-    ForceVideoModeHack (1024, 768);
+    ForceVideoModeHack (1366, 768);
   }
 
   //
