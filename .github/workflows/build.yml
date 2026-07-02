@@ -24,7 +24,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         repository: tianocore/edk2
-        ref: edk2-stable202008
+        ref: edk2-stable202105
         submodules: recursive
         path: edk2
 
