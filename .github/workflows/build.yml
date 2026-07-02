@@ -58,4 +58,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: UefiSeven-Custom-1366x768
-        path: edk2/Build/UefiSeven/RELEASE_GCC5/X64/UefiSeven.efi
+        path: edk2/Build/UefiSevenPkg/RELEASE_GCC5/X64/UefiSeven.efi
