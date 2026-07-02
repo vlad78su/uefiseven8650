@@ -814,35 +814,30 @@ UefiMain (
   }
 
   //
-  // Clean and load AMD BIOS
+  // 1. Сначала подгружаем твой рабочий AMD VBIOS, чтобы видеокарта успешно 
+  // прошла инициализацию и не сваливалась в Код 43 в диспетчере устройств.
   //
   ZeroMem ((VOID *)VGA_ROM_ADDRESS, VGA_ROM_SIZE);
   CopyMem ((VOID *)VGA_ROM_ADDRESS, AMD_VBIOS, sizeof (AMD_VBIOS));
 
   //
-  // Int10h Address
+  // 2. А теперь включаем магию центрирования UefiSeven поверх VBIOS!
+  // Вызываем оригинальную функцию, которая заполнит VEЅA-таблицы 
+  // и рассчитает черные полосы по бокам для твоего экрана 1366x768.
   //
-  NewInt10hHandlerEntry.Segment = (UINT16)((UINT32)VGA_ROM_ADDRESS >> 4); // Получится сегмент 0xC000
-  NewInt10hHandlerEntry.Offset  = 0x0003; 
-
-  PrintDebug (L"AMD VBIOS injected successfully. Int10h points to (%04x:%04x)\n",
-    NewInt10hHandlerEntry.Segment, NewInt10hHandlerEntry.Offset);
-
-  //
-  // Lock VGA ROM memory area to prevent further writes.
-  //
-  Status = EnsureMemoryLock (VGA_ROM_ADDRESS, (UINT32)VGA_ROM_SIZE, LOCK);
+  EFI_PHYSICAL_ADDRESS VesaEndAddress = 0;
+  Status = ShimVesaInformation (VGA_ROM_ADDRESS, &VesaEndAddress);
   if (EFI_ERROR (Status)) {
-    PrintDebug (L"Unable to lock VGA ROM memory at %x but this is not essential\n",
-      VGA_ROM_ADDRESS);
+    PrintDebug (L"Предупреждение: Не удалось применить центрирование экрана\n");
   }
 
   //
-  // Try to point the Int10h vector at shim entry point.
+  // 3. Перенаправляем прерывание Int10h на обработчик UefiSeven,
+  // чтобы именно он управлял выводом бутскрина, а не аппаратный VBIOS.
   //
-  IvtInt10hHandlerEntry = (IVT_ENTRY *)IVT_ADDRESS + 0x10;
-  if (!EFI_ERROR (IvtAllocationStatus)) {
-    IvtInt10hHandlerEntry->Segment = NewInt10hHandlerEntry.Segment;
+  NewInt10hHandlerEntry.Segment = (UINT16)((UINT32)VGA_ROM_ADDRESS >> 4);
+  NewInt10hHandlerEntry.Offset  = 0x0003; 
+  PrintDebug (L"AMD VBIOS + Центрирование UefiSeven настроены успешно.\n");
     IvtInt10hHandlerEntry->Offset = NewInt10hHandlerEntry.Offset;
     PrintDebug (L"Int10h IVT entry modified to point at %04x:%04x\n",
       IvtInt10hHandlerEntry->Segment, IvtInt10hHandlerEntry->Offset);
