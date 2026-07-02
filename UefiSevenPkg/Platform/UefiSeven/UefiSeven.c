@@ -848,32 +848,44 @@ UefiMain (
   }
 
   //
-  // 1. Сначала подгружаем твой рабочий AMD VBIOS, чтобы видеокарта успешно 
-  // прошла инициализацию и не сваливалась в Код 43 в диспетчере устройств.
+  // Clean and load AMD BIOS
   //
   ZeroMem ((VOID *)VGA_ROM_ADDRESS, VGA_ROM_SIZE);
   CopyMem ((VOID *)VGA_ROM_ADDRESS, AMD_VBIOS, sizeof (AMD_VBIOS));
 
   //
-  // 2. А теперь включаем магию центрирования UefiSeven поверх VBIOS!
-  // Вызываем оригинальную функцию, которая заполнит VEЅA-таблицы 
-  // и рассчитает черные полосы по бокам для твоего экрана 1366x768.
+  // Внедряем центрирование поверх загруженного VBIOS
   //
   EFI_PHYSICAL_ADDRESS VesaEndAddress = 0;
   Status = ShimVesaInformation (VGA_ROM_ADDRESS, &VesaEndAddress);
   if (EFI_ERROR (Status)) {
-    PrintDebug (L"Предупреждение: Не удалось применить центрирование экрана\n");
+    PrintDebug (L"Warning: Failed to apply image centering\n");
   }
 
   //
-  // 3. Перенаправляем прерывание Int10h на обработчик UefiSeven,
-  // чтобы именно он управлял выводом бутскрина, а не аппаратный VBIOS.
+  // Int10h Address
   //
-  NewInt10hHandlerEntry.Segment = (UINT16)((UINT32)VGA_ROM_ADDRESS >> 4);
+  NewInt10hHandlerEntry.Segment = (UINT16)((UINT32)VGA_ROM_ADDRESS >> 4); // Получится сегмент 0xC000
   NewInt10hHandlerEntry.Offset  = 0x0003; 
 
-  PrintDebug (L"AMD VBIOS + Центрирование UefiSeven настроены успешно.\n");
-	
+  PrintDebug (L"AMD VBIOS injected successfully. Int10h points to (%04x:%04x)\n",
+    NewInt10hHandlerEntry.Segment, NewInt10hHandlerEntry.Offset);
+
+  //
+  // Lock VGA ROM memory area to prevent further writes.
+  //
+  Status = EnsureMemoryLock (VGA_ROM_ADDRESS, (UINT32)VGA_ROM_SIZE, LOCK);
+  if (EFI_ERROR (Status)) {
+    PrintDebug (L"Unable to lock VGA ROM memory at %x but this is not essential\n",
+      VGA_ROM_ADDRESS);
+  }
+
+  //
+  // Try to point the Int10h vector at shim entry point.
+  //
+  IvtInt10hHandlerEntry = (IVT_ENTRY *)IVT_ADDRESS + 0x10;
+  if (!EFI_ERROR (IvtAllocationStatus)) {
+    IvtInt10hHandlerEntry->Segment = NewInt10hHandlerEntry.Segment;
     IvtInt10hHandlerEntry->Offset = NewInt10hHandlerEntry.Offset;
     PrintDebug (L"Int10h IVT entry modified to point at %04x:%04x\n",
       IvtInt10hHandlerEntry->Segment, IvtInt10hHandlerEntry->Offset);
@@ -920,7 +932,6 @@ UefiMain (
     PrintDebug (L"Found Windows Boot Manager at '%s'\n", LaunchPath);
   } else {
     PrintError (L"Could not find Windows Boot Manager at '%s'\n", LaunchPath);
-    //PrintError (L"Rename the original bootx64.efi from efi\\boot\\ to bootx64.original.efi\n");
     PrintError (L"Press Enter to continue.\n");
     WaitForEnter (FALSE);
   }
@@ -935,10 +946,6 @@ UefiMain (
       PrintError (L"Press Enter to continue and then immediately press F8 again\n");
       WaitForEnterAndStall (FALSE);
     }
-  } else {
-    // For debug mode we should also detect F8 and then wait a little
-    // to allow user to fill key buffer with F8 in time but this
-    // waiting will be done by the Lauch method.
   }
 
   if (LaunchPath != NULL) {
