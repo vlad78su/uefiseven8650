@@ -35,9 +35,8 @@ jobs:
         cp -r uefiseven/IntelFrameworkPkg edk2/
         cd edk2
         
-        # Вырезаем флаг -Werror из мейкфайлов BaseTools, чтобы предупреждения не стопили сборку
-        find BaseTools/Source/C -name "Makefile" -exec sed -i 's/-Werror//g' {} +
-        find BaseTools/Source/C -name "GNUmakefile" -exec sed -i 's/-Werror//g' {} +
+        # Вырезаем принудительный -Werror из глобальных настроек компилятора C для BaseTools
+        sed -i 's/-Werror//g' BaseTools/Source/C/Makefiles/header.makefile
         
         # Запускаем сборку внутренних утилит
         make -C BaseTools
