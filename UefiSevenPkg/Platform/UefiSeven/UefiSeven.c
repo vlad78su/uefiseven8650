@@ -818,11 +818,30 @@ UefiMain (
     goto Exit;
   }
 
-  // 1. Очищаем и копируем оригинальный обработчик (вернет Safe Mode и пропорции)
-  ZeroMem ((VOID *)VGA_ROM_ADDRESS, VGA_ROM_SIZE);
+  //
+  // Разлочиваем увеличенный регион памяти (128 КБ вместо 64 КБ),
+  // чтобы влез и обработчик UefiSeven, и твой тяжелый VBIOS.
+  //
+  Status = EnsureMemoryLock (VGA_ROM_ADDRESS, (UINT32)(VGA_ROM_SIZE * 2), UNLOCK);
+  if (EFI_ERROR (Status)) {
+    PrintError (L"Unable to unlock VGA ROM memory at %04x, aborting\n", VGA_ROM_ADDRESS);
+    goto Exit;
+  }
+
+  // 1. Очищаем увеличенную область памяти (128 КБ)
+  ZeroMem ((VOID *)VGA_ROM_ADDRESS, VGA_ROM_SIZE * 2);
+
+  // 2. Копируем оригинальный обработчик UefiSeven строго в начало (0xC0000).
+  // Это вернет Безопасный режим и управление геометрией экрана.
   CopyMem ((VOID *)VGA_ROM_ADDRESS, INT10H_HANDLER, sizeof (INT10H_HANDLER));
 
-  // 2. Инициализируем VESA структуры поверх обработчика
+  // 3. Копируем твой AMD_VBIOS со смещением 16 КБ (0x4000).
+  // Там он гарантированно не затрет VESA-структуры обработчика, 
+  // останется в legacy-области для драйвера AMD (Код 43 уйдет) и компилятор его не вырежет.
+  CopyMem ((VOID *)(VGA_ROM_ADDRESS + 0x4000), AMD_VBIOS, sizeof (AMD_VBIOS));
+  PrintDebug (L"AMD VBIOS injected into legacy segment at offset 0x4000\n");
+
+  // 4. Инициализируем VESA-структуры поверх INT10H_HANDLER (как в оригинале)
   EFI_PHYSICAL_ADDRESS Int10hHandlerAddress;
   Status = ShimVesaInformation (VGA_ROM_ADDRESS, &Int10hHandlerAddress);
   if (EFI_ERROR (Status)) {
@@ -835,18 +854,13 @@ UefiMain (
       NewInt10hHandlerEntry.Segment, NewInt10hHandlerEntry.Offset);
   }
 
-  // 3. Хак против оптимизации компилятора и для подсовывания VBIOS драйверу:
-  // Выделяем память в адресном пространстве UEFI специально под твой дамп.
-  // Так массив гарантированно попадет в скомпилированный .efi (размер вернется к ~101 КБ),
-  // а его содержимое останется доступным в RAM для драйвера AMD.
-  EFI_PHYSICAL_ADDRESS VbiosAllocAddress = 0;
-  UINTN VbiosPages = (sizeof(AMD_VBIOS) + 4095) / 4096;
-  Status = gBS->AllocatePages(AllocateAnyPages, EfiBootServicesData, VbiosPages, &VbiosAllocAddress);
-  if (!EFI_ERROR(Status)) {
-    CopyMem((VOID *)(UINTN)VbiosAllocAddress, AMD_VBIOS, sizeof(AMD_VBIOS));
-    PrintDebug(L"AMD VBIOS forced into RAM at address: %x\n", VbiosAllocAddress);
-  } else {
-    PrintError(L"Failed to allocate memory for AMD VBIOS\n");
+  //
+  // Залочиваем обратно всю измененную память
+  //
+  Status = EnsureMemoryLock (VGA_ROM_ADDRESS, (UINT32)(VGA_ROM_SIZE * 2), LOCK);
+  if (EFI_ERROR (Status)) {
+    PrintDebug (L"Unable to lock VGA ROM memory at %x but this is not essential\n",
+      VGA_ROM_ADDRESS);
   }
 
   //
