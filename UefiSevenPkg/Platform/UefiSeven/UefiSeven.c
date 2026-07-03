@@ -818,24 +818,33 @@ UefiMain (
     goto Exit;
   }
 
-  // Очищаем область ROM
+  // 1. Полностью очищаем область ROM (64 КБ)
   ZeroMem ((VOID *)VGA_ROM_ADDRESS, VGA_ROM_SIZE);
-  
-  // Копируем твой оригинальный AMD_VBIOS в самое начало
-  CopyMem ((VOID *)VGA_ROM_ADDRESS, AMD_VBIOS, sizeof (AMD_VBIOS));
 
-  // Вызываем наполнение VESA-таблиц поверх или в свободную область структуры прерывания
+  // 2. Возвращаем оригинальный обработчик прерываний UefiSeven в начало памяти.
+  // Это восстановит Безопасный режим (1024x768 32-бит) и управление геометрией экрана.
+  CopyMem ((VOID *)VGA_ROM_ADDRESS, INT10H_HANDLER, sizeof (INT10H_HANDLER));
+
+  // 3. Копируем твой оригинальный AMD_VBIOS со смещением 32 КБ (0x8000).
+  // Видеокарта получит свой VBIOS для инициализации, и Код 43 не появится.
+  if (sizeof (AMD_VBIOS) <= (VGA_ROM_SIZE - 0x8000)) {
+    CopyMem ((VOID *)(VGA_ROM_ADDRESS + 0x8000), AMD_VBIOS, sizeof (AMD_VBIOS));
+    PrintDebug (L"AMD VBIOS injected at offset 0x8000\n");
+  } else {
+    PrintError (L"AMD VBIOS is too large to fit in the offset area!\n");
+  }
+
+  // 4. Заполняем VESA структуру поверх INT10H_HANDLER, как это делал оригинал
   EFI_PHYSICAL_ADDRESS Int10hHandlerAddress;
   Status = ShimVesaInformation (VGA_ROM_ADDRESS, &Int10hHandlerAddress);
   if (EFI_ERROR (Status)) {
     PrintError (L"VESA information could not be filled in, aborting\n");
     goto Exit;
   } else {
-    // Вектор прерывания должен указывать на обработчик VESA-shim,
-    // чтобы работал Безопасный режим и корректно передавалась геометрия экрана
+    // Высчитываем правильную точку входа для прерывания Int10h
     NewInt10hHandlerEntry.Segment = (UINT16)((UINT32)VGA_ROM_ADDRESS >> 4);
     NewInt10hHandlerEntry.Offset  = (UINT16)(Int10hHandlerAddress - VGA_ROM_ADDRESS);
-    PrintDebug (L"AMD VBIOS + VESA injected successfully. Int10h points to (%04x:%04x)\n",
+    PrintDebug (L"VESA Shim installed. Int10h points to (%04x:%04x)\n",
       NewInt10hHandlerEntry.Segment, NewInt10hHandlerEntry.Offset);
   }
 
