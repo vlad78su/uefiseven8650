@@ -818,34 +818,35 @@ UefiMain (
     goto Exit;
   }
 
-  // 1. Полностью очищаем область ROM (64 КБ)
+  // 1. Очищаем и копируем оригинальный обработчик (вернет Safe Mode и пропорции)
   ZeroMem ((VOID *)VGA_ROM_ADDRESS, VGA_ROM_SIZE);
-
-  // 2. Возвращаем оригинальный обработчик прерываний UefiSeven в начало памяти.
-  // Это восстановит Безопасный режим (1024x768 32-бит) и управление геометрией экрана.
   CopyMem ((VOID *)VGA_ROM_ADDRESS, INT10H_HANDLER, sizeof (INT10H_HANDLER));
 
-  // 3. Копируем твой оригинальный AMD_VBIOS со смещением 32 КБ (0x8000).
-  // Видеокарта получит свой VBIOS для инициализации, и Код 43 не появится.
-  if (sizeof (AMD_VBIOS) <= (VGA_ROM_SIZE - 0x8000)) {
-    CopyMem ((VOID *)(VGA_ROM_ADDRESS + 0x8000), AMD_VBIOS, sizeof (AMD_VBIOS));
-    PrintDebug (L"AMD VBIOS injected at offset 0x8000\n");
-  } else {
-    PrintError (L"AMD VBIOS is too large to fit in the offset area!\n");
-  }
-
-  // 4. Заполняем VESA структуру поверх INT10H_HANDLER, как это делал оригинал
+  // 2. Инициализируем VESA структуры поверх обработчика
   EFI_PHYSICAL_ADDRESS Int10hHandlerAddress;
   Status = ShimVesaInformation (VGA_ROM_ADDRESS, &Int10hHandlerAddress);
   if (EFI_ERROR (Status)) {
     PrintError (L"VESA information could not be filled in, aborting\n");
     goto Exit;
   } else {
-    // Высчитываем правильную точку входа для прерывания Int10h
     NewInt10hHandlerEntry.Segment = (UINT16)((UINT32)VGA_ROM_ADDRESS >> 4);
     NewInt10hHandlerEntry.Offset  = (UINT16)(Int10hHandlerAddress - VGA_ROM_ADDRESS);
     PrintDebug (L"VESA Shim installed. Int10h points to (%04x:%04x)\n",
       NewInt10hHandlerEntry.Segment, NewInt10hHandlerEntry.Offset);
+  }
+
+  // 3. Хак против оптимизации компилятора и для подсовывания VBIOS драйверу:
+  // Выделяем память в адресном пространстве UEFI специально под твой дамп.
+  // Так массив гарантированно попадет в скомпилированный .efi (размер вернется к ~101 КБ),
+  // а его содержимое останется доступным в RAM для драйвера AMD.
+  EFI_PHYSICAL_ADDRESS VbiosAllocAddress = 0;
+  UINTN VbiosPages = (sizeof(AMD_VBIOS) + 4095) / 4096;
+  Status = gBS->AllocatePages(AllocateAnyPages, EfiBootServicesData, VbiosPages, &VbiosAllocAddress);
+  if (!EFI_ERROR(Status)) {
+    CopyMem((VOID *)(UINTN)VbiosAllocAddress, AMD_VBIOS, sizeof(AMD_VBIOS));
+    PrintDebug(L"AMD VBIOS forced into RAM at address: %x\n", VbiosAllocAddress);
+  } else {
+    PrintError(L"Failed to allocate memory for AMD VBIOS\n");
   }
 
   //
