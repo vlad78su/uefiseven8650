@@ -810,17 +810,7 @@ UefiMain (
 
 
   //
-  // Unlock VGA ROM memory area for writing first.
-  //
-  Status = EnsureMemoryLock (VGA_ROM_ADDRESS, (UINT32)VGA_ROM_SIZE, UNLOCK);
-  if (EFI_ERROR (Status)) {
-    PrintError (L"Unable to unlock VGA ROM memory at %04x, aborting\n", VGA_ROM_ADDRESS);
-    goto Exit;
-  }
-
-  //
-  // Разлочиваем увеличенный регион памяти (128 КБ вместо 64 КБ),
-  // чтобы влез и обработчик UefiSeven, и твой тяжелый VBIOS.
+  // Разлочиваем весь legacy-регион объемом 128 КБ (от 0xC0000 до 0xE0000)
   //
   Status = EnsureMemoryLock (VGA_ROM_ADDRESS, (UINT32)(VGA_ROM_SIZE * 2), UNLOCK);
   if (EFI_ERROR (Status)) {
@@ -828,20 +818,14 @@ UefiMain (
     goto Exit;
   }
 
-  // 1. Очищаем увеличенную область памяти (128 КБ)
+  // Полностью очищаем все 128 КБ памяти
   ZeroMem ((VOID *)VGA_ROM_ADDRESS, VGA_ROM_SIZE * 2);
 
-  // 2. Копируем оригинальный обработчик UefiSeven строго в начало (0xC0000).
-  // Это вернет Безопасный режим и управление геометрией экрана.
+  // --- БЛОК 1: Инициализация UefiSeven (для Windows и Бутскрина) ---
+  // Копируем чистый обработчик строго в 0xC0000
   CopyMem ((VOID *)VGA_ROM_ADDRESS, INT10H_HANDLER, sizeof (INT10H_HANDLER));
 
-  // 3. Копируем твой AMD_VBIOS со смещением 16 КБ (0x4000).
-  // Там он гарантированно не затрет VESA-структуры обработчика, 
-  // останется в legacy-области для драйвера AMD (Код 43 уйдет) и компилятор его не вырежет.
-  CopyMem ((VOID *)(VGA_ROM_ADDRESS + 0x4000), AMD_VBIOS, sizeof (AMD_VBIOS));
-  PrintDebug (L"AMD VBIOS injected into legacy segment at offset 0x4000\n");
-
-  // 4. Инициализируем VESA-структуры поверх INT10H_HANDLER (как в оригинале)
+  // Наполняем VESA структуры. Они запишутся внутри первых 64 КБ
   EFI_PHYSICAL_ADDRESS Int10hHandlerAddress;
   Status = ShimVesaInformation (VGA_ROM_ADDRESS, &Int10hHandlerAddress);
   if (EFI_ERROR (Status)) {
@@ -850,27 +834,22 @@ UefiMain (
   } else {
     NewInt10hHandlerEntry.Segment = (UINT16)((UINT32)VGA_ROM_ADDRESS >> 4);
     NewInt10hHandlerEntry.Offset  = (UINT16)(Int10hHandlerAddress - VGA_ROM_ADDRESS);
-    PrintDebug (L"VESA Shim installed. Int10h points to (%04x:%04x)\n",
+    PrintDebug (L"VESA Shim installed successfully at 0xC000. Int10h -> (%04x:%04x)\n",
       NewInt10hHandlerEntry.Segment, NewInt10hHandlerEntry.Offset);
   }
 
-  //
-  // Залочиваем обратно всю измененную память
-  //
-  Status = EnsureMemoryLock (VGA_ROM_ADDRESS, (UINT32)(VGA_ROM_SIZE * 2), LOCK);
-  if (EFI_ERROR (Status)) {
-    PrintDebug (L"Unable to lock VGA ROM memory at %x but this is not essential\n",
-      VGA_ROM_ADDRESS);
-  }
+  // --- БЛОК 2: Инжекция VBIOS AMD (Исключительно для драйвера) ---
+  // Копируем твой дамп в начало второго сегмента (0xD0000). 
+  // У него свой заголовок 0x55AA, драйвер AMD найдет его при сканировании адресов.
+  EFI_PHYSICAL_ADDRESS AmdVbiosAddress = VGA_ROM_ADDRESS + 0x10000; // 0xC0000 + 64KB = 0xD0000
+  CopyMem ((VOID *)AmdVbiosAddress, AMD_VBIOS, sizeof (AMD_VBIOS));
+  PrintDebug (L"AMD VBIOS injected separately at legacy address: 0xD0000\n");
 
   //
-  // Lock VGA ROM memory area to prevent further writes.
+  // Залочиваем обратно измененную память (все 128 КБ)
   //
-  Status = EnsureMemoryLock (VGA_ROM_ADDRESS, (UINT32)VGA_ROM_SIZE, LOCK);
-  if (EFI_ERROR (Status)) {
-    PrintDebug (L"Unable to lock VGA ROM memory at %x but this is not essential\n",
-      VGA_ROM_ADDRESS);
-  }
+  Status = EnsureMemoryLock (VGA_ROM_ADDRESS, (UINT32)(VGA_ROM_SIZE * 2), LOCK);
+
 
   //
   // Try to point the Int10h vector at shim entry point.
