@@ -68,6 +68,9 @@ ShimVesaInformation (
   UINT32                HorizontalOffsetPx;
   UINT32                VerticalOffsetPx;
   EFI_PHYSICAL_ADDRESS  FrameBufferBaseWithOffset;
+  EFI_PHYSICAL_ADDRESS  VbeEndAddress = 0;
+  EFI_PHYSICAL_ADDRESS  AmdVbiosAddress = 0xC8000;
+  UINTN                 AmdVbiosSize = 0;
 
   if ((StartAddress == 0) || (EndAddress == NULL)) {
     return EFI_INVALID_PARAMETER;
@@ -839,46 +842,38 @@ UefiMain (
 
 
 //
-  // Разрешаем запись во весь регион VGA ROM (от C0000 до E0000)
+  // Unlock VGA ROM memory area for writing first.
   //
-  Status = EnsureMemoryLock (VGA_ROM_ADDRESS, (UINT32)VGA_ROM_SIZE, UNLOCK);[cite: 1]
-  if (EFI_ERROR (Status)) {[cite: 1]
-    PrintError (L"Unable to unlock VGA ROM memory at %04x, aborting\n", VGA_ROM_ADDRESS);[cite: 1]
-    goto Exit;[cite: 1]
+  Status = EnsureMemoryLock (VGA_ROM_ADDRESS, (UINT32)VGA_ROM_SIZE, UNLOCK);
+  if (EFI_ERROR (Status)) {
+    PrintError (L"Unable to unlock VGA ROM memory at %04x, aborting\n", VGA_ROM_ADDRESS);
+    goto Exit;
   }
 
   //
-  // 1. Сначала даем UefiSeven сделать его штатную работу и создать VBE структуру в 0xC0000
+  // 1. Инициализируем стандартный VBE от UefiSeven в 0xC0000
   //
-  EFI_PHYSICAL_ADDRESS VbeEndAddress = 0;
   Status = ShimVesaInformation (VGA_ROM_ADDRESS, &VbeEndAddress);
   if (EFI_ERROR (Status)) {
     PrintDebug (L"Standard UefiSeven VESA shim failed, but we proceed with VBIOS\n");
   }
 
   //
-  // 2. Инжектируем твой AMD VBIOS со смещением на 0xC8000
+  // 2. Загружаем твой VBIOS со смещением в 0xC8000
   //
-  EFI_PHYSICAL_ADDRESS AmdVbiosAddress = 0xC8000;
-  UINTN AmdVbiosSize = sizeof (AMD_VBIOS);[cite: 1]
-
-  // Очищаем конкретно то место, куда кладем VBIOS, не трогая начало C0000
+  AmdVbiosSize = sizeof (AMD_VBIOS);
   ZeroMem ((VOID *)(UINTN)AmdVbiosAddress, 0x10000); // чистим 64 КБ под VBIOS
-  CopyMem ((VOID *)(UINTN)AmdVbiosAddress, AMD_VBIOS, AmdVbiosSize);[cite: 1]
+  CopyMem ((VOID *)(UINTN)AmdVbiosAddress, AMD_VBIOS, AmdVbiosSize);
 
   //
-  // 3. Настраиваем прерывание Int10h
+  // Int10h Address
   //
-  // Мы оставляем стандартный вектор UefiSeven, чтобы работал безопасный режим, 
-  // так как NewInt10hHandlerEntry здесь настраивается на хэндлер прерываний.
-  // (В оригинальном UefiSeven здесь вызывается подготовка Int10hHandler)
-  //
-  // Чтобы не ломать логику прерываний UefiSeven, адрес для обработчика берем стандартный:
   NewInt10hHandlerEntry.Segment = (UINT16)((UINT32)VGA_ROM_ADDRESS >> 4); // 0xC000
-  NewInt10hHandlerEntry.Offset  = 0x0003;[cite: 1]
+  NewInt10hHandlerEntry.Offset  = 0x0003; 
 
-  PrintDebug (L"VBE initialized at C0000. AMD VBIOS injected at C8000.\n");
-
+  PrintDebug (L"VBE initialized at C0000. AMD VBIOS injected at C8000. Int10h points to (%04x:%04x)\n",
+    NewInt10hHandlerEntry.Segment, NewInt10hHandlerEntry.Offset);
+	
   //
   // Try to point the Int10h vector at shim entry point.
   //
