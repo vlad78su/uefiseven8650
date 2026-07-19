@@ -68,9 +68,6 @@ ShimVesaInformation (
   UINT32                HorizontalOffsetPx;
   UINT32                VerticalOffsetPx;
   EFI_PHYSICAL_ADDRESS  FrameBufferBaseWithOffset;
-  EFI_PHYSICAL_ADDRESS  VbeEndAddress = 0;
-  EFI_PHYSICAL_ADDRESS  AmdVbiosAddress = 0xC8000;
-  UINTN                 AmdVbiosSize = 0;
 
   if ((StartAddress == 0) || (EndAddress == NULL)) {
     return EFI_INVALID_PARAMETER;
@@ -679,6 +676,9 @@ UefiMain (
   CHAR16                  *FFVFilePath = NULL;
   EFI_FILE_IO_INTERFACE   *Volume;
   EFI_FILE_INFO           *FileInfo;
+  EFI_PHYSICAL_ADDRESS    VbeEndAddress = 0;
+  EFI_PHYSICAL_ADDRESS    AmdVbiosAddress = 0xC8000;
+  UINTN                   AmdVbiosSize = 0;
 
   //
   // Try freeing IVT memory area in case it has already been allocated.
