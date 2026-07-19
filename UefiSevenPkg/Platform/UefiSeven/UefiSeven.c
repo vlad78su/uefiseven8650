@@ -662,306 +662,54 @@ UefiMain (
   IN EFI_SYSTEM_TABLE   *SystemTable
   )
 {
-  IVT_ENTRY               *IvtInt10hHandlerEntry;
-  IVT_ENTRY               NewInt10hHandlerEntry;
-  EFI_PHYSICAL_ADDRESS    IvtAddress;
   EFI_STATUS              Status;
-  EFI_STATUS              IvtAllocationStatus;
-  EFI_STATUS              IvtFreeStatus;
-  EFI_INPUT_KEY           Key;
   CHAR16                  *LaunchPath = NULL;
-  CHAR16                  *LogFilePath = NULL;
-  CHAR16                  *VerboseFilePath = NULL;
-  CHAR16                  *SkipFilePath = NULL;
-  CHAR16                  *FFVFilePath = NULL;
   EFI_FILE_IO_INTERFACE   *Volume;
-  EFI_FILE_INFO           *FileInfo;
-  EFI_PHYSICAL_ADDRESS    VbeEndAddress = 0;
-  EFI_PHYSICAL_ADDRESS    AmdVbiosAddress = 0xC8000;
-  UINTN                   AmdVbiosSize = 0;
 
-  //
-  // Try freeing IVT memory area in case it has already been allocated.
-  //
-  IvtFreeStatus = gBS->FreePages (IVT_ADDRESS, 1);
-
-  //
-  // Claim real mode IVT memory area before any allocation can
-  // grab it. This can be done as the IDT has already been
-  // initialized so we can overwrite the IVT.
-  //
-  IvtAddress = IVT_ADDRESS;
-  IvtAllocationStatus = gBS->AllocatePages (AllocateAddress, EfiBootServicesCode, 1, &IvtAddress);
-
-  PrintDebug (L"Force free IVT area result: %r\n", IvtFreeStatus);
-
-  //
-  // Initialization.
-  //
   mUefiSevenImage = ImageHandle;
   Status = gBS->HandleProtocol (mUefiSevenImage, &gEfiLoadedImageProtocolGuid, (VOID **)&mUefiSevenImageInfo);
   if (EFI_ERROR (Status)) {
-    PrintError (L"Unable to locate EFI_LOADED_IMAGE_PROTOCOL, aborting\n");
-    goto Exit;
+    return Status;
   }
 
-  // Open volume where UefiSeven resides.
+  // 1. Открываем файловую систему, чтобы UefiSeven мог найти оригинальный загрузчик
   Status = gBS->HandleProtocol (mUefiSevenImageInfo->DeviceHandle, &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Volume);
-  if (EFI_ERROR (Status)) {
-    PrintError (L"Unable to find simple file system protocol (error: %r)\n", Status);
-    goto Exit;
-  } else {
-    PrintDebug (L"Found simple file system protocol\n");
-  }
-  Status = Volume->OpenVolume (Volume, &mVolumeRoot);
-  if (EFI_ERROR (Status)) {
-    PrintError (L"Unable to open volume (error: %r)\n", Status);
-    goto Exit;
+  if (!EFI_ERROR (Status)) {
+    Volume->OpenVolume (Volume, &mVolumeRoot);
   }
 
   mEfiFilePath = PathCleanUpDirectories (ConvertDevicePathToText (mUefiSevenImageInfo->FilePath, FALSE, FALSE));
-  if (mEfiFilePath == NULL) {
-    PrintError (L"Unable to locate self-path, aborting\n");
-    goto Exit;
-  }
 
-  //
-  // Read <config>.ini, fallback to check existence of old UefiSeven.* files.
-  //
-  if (!ReadConfig ()) {
-    //
-    // Check if we should skip warnings and prompts
-    //
-    Status = GetFilenameInSameDirectory (mEfiFilePath, L"UefiSeven.skiperrors", (VOID **)&SkipFilePath);
-    if (!EFI_ERROR (Status)) {
-      mSkipErrors = FileExists (mVolumeRoot, SkipFilePath);
-      FreePool (SkipFilePath);
-    }
-
-    //
-    // Check if we should force fakevesa
-    //
-    Status = GetFilenameInSameDirectory (mEfiFilePath, L"UefiSeven.force_fakevesa", (VOID **)&FFVFilePath);
-    if (!EFI_ERROR (Status)) {
-      mForceFakeVesa = FileExists (mVolumeRoot, FFVFilePath);
-      FreePool (FFVFilePath);
-    }
-
-    //
-    // Check if we should run in verbose mode
-    //
-    Status = GetFilenameInSameDirectory (mEfiFilePath, L"UefiSeven.verbose", (VOID **)&VerboseFilePath);
-    if (!EFI_ERROR (Status)) {
-      mVerboseMode = FileExists (mVolumeRoot, VerboseFilePath);
-      FreePool (VerboseFilePath);
-    }
-  }
-
-  if (mLogToFile) {
-    mLogToFile = FALSE;
-    Status = GetFilenameInSameDirectory (mEfiFilePath, L"UefiSeven.log", (VOID **)&LogFilePath);
-    if (!EFI_ERROR (Status)) {
-	  PrintDebug (L"Clearing previous log file\n");
-      FileDelete (mVolumeRoot, LogFilePath);
-
-      Status = mVolumeRoot->Open (
-                              mVolumeRoot,
-                              &mLogFileHandle,
-                              LogFilePath,
-                              EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE,
-                              0);
-      if (!EFI_ERROR (Status)) {
-        FileInfo = GetFileInfo (mLogFileHandle);
-        if (FileInfo != NULL) {
-          // Re-enable mLogToFile if its not directory.
-          if ((FileInfo->Attribute & EFI_FILE_DIRECTORY) == 0) {
-            mLogToFile = TRUE;
-          }
-        }
-      }
-      FreePool (LogFilePath);
-    }
-  }
-
-  //
-  // Check if we should run in verbose mode ('v' is pressed).
-  //
-  if (!mVerboseMode) {
-    Status = gST->ConIn->ReadKeyStroke (gST->ConIn, &Key);
-    if (!EFI_ERROR (Status) && (Key.UnicodeChar == L'v')) {
-      mVerboseMode = TRUE;
-    }
-  }
-
-  PrintDebug (L"UefiSeven %s\n", VERSION);
-
-  if (mVerboseMode) {
-    PrintDebug (L"You are running in verbose mode, press Enter to continue\n");
-    WaitForEnter (FALSE);
-  }
-
-  //
-  // Show animated logo.
-  //
-  //if (!mVerboseMode) {
-  //  ShowAnimatedLogo ();
-  //}
-
-  //
-  // Windows 7 prefers a 1024x768 resolution.
-  //
-  SwitchVideoMode (1024, 768);
-  if (mVerboseMode || mLogToFile) {
-    PrintVideoInfo ();
-  }
-
-  if (!MatchCurrentResolution (1024, 768)) {
-    PrintError (L"Current display does not seem to support changing to 1024x768 resolution\n");
-    PrintError (L"which is the minimum requirement of Windows 7.\n");
-    PrintError (L"It is likely that Windows might fail to boot even with the handler installed.\n");
-    PrintError (L"Press Enter to try a new 'hack' that will force the display driver to work.\n");
-    PrintError (L"The display might be glitchy but it will be able to provide a workable screen.\n");
-    if (!mSkipErrors) {
-      WaitForEnter (FALSE);
-    }
-    ForceVideoModeHack (1024, 768);
-  }
-
-  //
-  // If an Int10h handler exists there either is a real
-  // VGA ROM in operation or we installed the shim before.
-  //
-  if (!mForceFakeVesa) {
-    if (IsInt10hHandlerDefined ()) {
-      PrintDebug (L"Int10h already has a handler, no further action required\n");
-      goto Exit;
-    }
-  } else {
-    PrintDebug (L"Overwriting int10h handler with fakevesa...\n");
-  }
-
-
-//
-  // Unlock VGA ROM memory area for writing first.
-  //
+  // 2. Разблокируем регион памяти VGA ROM для записи
   Status = EnsureMemoryLock (VGA_ROM_ADDRESS, (UINT32)VGA_ROM_SIZE, UNLOCK);
-  if (EFI_ERROR (Status)) {
-    PrintError (L"Unable to unlock VGA ROM memory at %04x, aborting\n", VGA_ROM_ADDRESS);
-    goto Exit;
+  if (!EFI_ERROR (Status)) {
+    // На всякий случай чистим весь регион 128 КБ
+    ZeroMem ((VOID *)VGA_ROM_ADDRESS, VGA_ROM_SIZE);
+
+    // Копируем родной VBIOS по каноничному адресу 0xC0000
+    CopyMem ((VOID *)VGA_ROM_ADDRESS, AMD_VBIOS, sizeof (AMD_VBIOS));
+
+    // Дублируем на 0xC8000, чтобы драйвер AMD гарантированно его зацепил
+    CopyMem ((VOID *)(UINTN)0xC8000, AMD_VBIOS, sizeof (AMD_VBIOS));
+
+    // Возвращаем защиту памяти назад
+    EnsureMemoryLock (VGA_ROM_ADDRESS, (UINT32)VGA_ROM_SIZE, LOCK);
   }
 
-  //
-  // 1. Инициализируем стандартный VBE от UefiSeven в 0xC0000
-  //
-  Status = ShimVesaInformation (VGA_ROM_ADDRESS, &VbeEndAddress);
-  if (EFI_ERROR (Status)) {
-    PrintDebug (L"Standard UefiSeven VESA shim failed, but we proceed with VBIOS\n");
-  }
-
-  //
-  // 2. Загружаем твой VBIOS со смещением в 0xC8000
-  //
-  AmdVbiosSize = sizeof (AMD_VBIOS);
-  ZeroMem ((VOID *)(UINTN)AmdVbiosAddress, 0x10000); // чистим 64 КБ под VBIOS
-  CopyMem ((VOID *)(UINTN)AmdVbiosAddress, AMD_VBIOS, AmdVbiosSize);
-
-  //
-  // Int10h Address
-  //
-  NewInt10hHandlerEntry.Segment = (UINT16)((UINT32)VGA_ROM_ADDRESS >> 4); // 0xC000
-  NewInt10hHandlerEntry.Offset  = 0x0003; 
-
-  PrintDebug (L"VBE initialized at C0000. AMD VBIOS injected at C8000. Int10h points to (%04x:%04x)\n",
-    NewInt10hHandlerEntry.Segment, NewInt10hHandlerEntry.Offset);
-	
-  //
-  // Try to point the Int10h vector at shim entry point.
-  //
-  IvtInt10hHandlerEntry = (IVT_ENTRY *)IVT_ADDRESS + 0x10;
-  if (!EFI_ERROR (IvtAllocationStatus)) {
-    IvtInt10hHandlerEntry->Segment = NewInt10hHandlerEntry.Segment;
-    IvtInt10hHandlerEntry->Offset = NewInt10hHandlerEntry.Offset;
-    PrintDebug (L"Int10h IVT entry modified to point at %04x:%04x\n",
-      IvtInt10hHandlerEntry->Segment, IvtInt10hHandlerEntry->Offset);
-  } else if (IvtInt10hHandlerEntry->Segment == NewInt10hHandlerEntry.Segment
-    && IvtInt10hHandlerEntry->Offset == NewInt10hHandlerEntry.Offset) {
-    PrintDebug (L"Int10h IVT entry could not be modified but already pointing at %04x:%04x\n",
-      IvtInt10hHandlerEntry->Segment, IvtInt10hHandlerEntry->Offset);
-  } else {
-    PrintError (L"Unable to claim IVT area at %04x (error: %r)\n", IVT_ADDRESS, IvtAllocationStatus);
-    PrintError (L"Int10h IVT entry could not be modified and currently poiting\n");
-    PrintError (L"at a wrong memory area (%04x:%04x instead of %04x:%04x).\n",
-      IvtInt10hHandlerEntry->Segment, IvtInt10hHandlerEntry->Offset,
-      NewInt10hHandlerEntry.Segment, NewInt10hHandlerEntry.Offset);
-    PrintError (L"Press Enter to try to continue.\n");
-    if (!mSkipErrors) {
-      WaitForEnter (FALSE);
-    }
-  }
-
-  //
-  // Double check if the handler has been installed properly
-  //
-  if (IsInt10hHandlerDefined ()) {
-    PrintDebug (L"Pre-boot Int10h sanity check success\n");
-  } else {
-    PrintError (L"Pre-boot Int10h sanity check failed\n");
-    PrintError (L"Press Enter to continue.\n");
-    if (!mSkipErrors) {
-      WaitForEnter (FALSE);
-    }
-  }
-
-  Exit:
-
-  //
-  // Check if we can chainload the Windows Boot Manager.
-  //
+  // 3. Ищем загрузчик FlashBoot (он должен называться bootmgfw.original.efi)
   if (mEfiFilePath != NULL) {
-    Status = ChangeExtension (mEfiFilePath, L"original.efi", (VOID **)&LaunchPath);
-  } else {
-    Status = EFI_NOT_FOUND;
-  }
-  if (!EFI_ERROR (Status) && FileExists (mVolumeRoot, LaunchPath)) {
-    PrintDebug (L"Found Windows Boot Manager at '%s'\n", LaunchPath);
-  } else {
-    PrintError (L"Could not find Windows Boot Manager at '%s'\n", LaunchPath);
-    //PrintError (L"Rename the original bootx64.efi from efi\\boot\\ to bootx64.original.efi\n");
-    PrintError (L"Press Enter to continue.\n");
-    WaitForEnter (FALSE);
+    ChangeExtension (mEfiFilePath, L"original.efi", (VOID **)&LaunchPath);
   }
 
-  //
-  // Make it possible to enter Windows Boot Manager.
-  //
-  if (!mVerboseMode) {
-    Status = gST->ConIn->ReadKeyStroke (gST->ConIn, &Key);
-    if (!EFI_ERROR (Status) && Key.ScanCode == SCAN_F8) {
-      PrintError (L"F8 keypress detected, switching to text mode\n");
-      PrintError (L"Press Enter to continue and then immediately press F8 again\n");
-      WaitForEnterAndStall (FALSE);
-    }
-  } else {
-    // For debug mode we should also detect F8 and then wait a little
-    // to allow user to fill key buffer with F8 in time but this
-    // waiting will be done by the Lauch method.
-  }
-
-  if (LaunchPath != NULL) {
-    Launch (LaunchPath, mVerboseMode ? &WaitForEnterAndStall : NULL);
+  if (LaunchPath != NULL && FileExists (mVolumeRoot, LaunchPath)) {
+    // Передаем управление во FlashBoot, который сам сделает красивое разрешение
+    Launch (LaunchPath, NULL);
     FreePool (LaunchPath);
   }
 
   if (mEfiFilePath != NULL) {
     FreePool (mEfiFilePath);
   }
-
-  if (mLogToFile) {
-    if (mLogFileHandle != NULL) {
-      mLogFileHandle->Close (mLogFileHandle);
-    }
-  }
-
   if (mVolumeRoot != NULL) {
     mVolumeRoot->Close (mVolumeRoot);
   }
